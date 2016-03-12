@@ -2,17 +2,38 @@
 // released under the GPLv3 license to match the rest of the AdaFruit NeoPixel library
 #include <SoftwareSerial.h>
 #include <Adafruit_NeoPixel.h>
+
+// include SPI, MP3 and SD libraries
+#include <SPI.h>
+#include <Adafruit_VS1053.h>
+#include <SD.h>
+
 #ifdef __AVR__
 #include <avr/power.h>
 #endif
 
-#define PIN            6
+#define PIN            2
 #define NUMPIXELS      5
 
+// define the pins used
+#define CLK 13       // SPI Clock, shared with SD card
+#define MISO 12      // Input data, from VS1053/SD card
+#define MOSI 11      // Output data, to VS1053/SD card
+#define BREAKOUT_RESET  7      // VS1053 reset pin (output)
+#define BREAKOUT_CS     10     // VS1053 chip select pin (output)
+#define BREAKOUT_DCS    6      // VS1053 Data/command select pin (output) XDCS
+#define CARDCS 4     // Card chip select pin SDCS
+#define DREQ 3       // VS1053 Data request, ideally an Interrupt pin
+
+Adafruit_VS1053_FilePlayer musicPlayer = 
+  // create breakout-example object!
+  Adafruit_VS1053_FilePlayer(BREAKOUT_RESET, BREAKOUT_CS, BREAKOUT_DCS, DREQ, CARDCS);
+  
 SoftwareSerial mySerial(9, 8); // RX, TX
 
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(16, PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+
 int lights;
 int sound = 0;
 long lights2 = 0;
@@ -30,6 +51,24 @@ int ledState = LOW;
 
 void setup() {
   Serial.begin(9600);
+  
+  if (! musicPlayer.begin()) { // initialise the music player
+     Serial.println(F("Couldn't find VS1053, do you have the right pins defined?"));
+     while (1);
+  }
+  Serial.println(F("VS1053 found"));
+  
+  SD.begin(CARDCS);    // initialise the SD card
+  
+  // Set volume for left, right channels. lower numbers == louder volume!
+  musicPlayer.setVolume(20,20);
+
+  // Timer interrupts are not suggested, better to use DREQ interrupt!
+  //musicPlayer.useInterrupt(VS1053_FILEPLAYER_TIMER0_INT); // timer int
+
+  // If DREQ is on an interrupt pin (on uno, #2 or #3) we can do background
+  // audio playing
+  musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT);  // DREQ int
   
   mySerial.begin(9600);
   
@@ -54,10 +93,10 @@ void loop() {
       Serial.print(posarray[5]);
       Serial.println(")");
     }
+    lights2 = posarray[5];
   }
 
   delay(10);
-  lights2 = posarray[5];
   
   if(lights2 == '1') {
     Serial.println("Running Light Test");
@@ -68,8 +107,15 @@ void loop() {
     Serial.println("Running Theatre Chase");
     theaterChase(strip.Color(127, 127, 127), 50); // White
     
-    pixels.show();  
+    pixels.show();
     lights2 = 1;
+    
+    // Play one file, don't return until complete
+    Serial.println(F("Playing track 001"));
+    musicPlayer.playFullFile("track001.mp3");
+    // Play another file in the background, REQUIRES interrupts!
+    Serial.println(F("Playing track 002"));
+    musicPlayer.startPlayingFile("track002.mp3");
   }
 
   if (lights<100) {
